@@ -1,0 +1,55 @@
+name: Build Flutter APK
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: actions/setup-flutter@v3
+        with:
+          channel: 'stable'
+
+      - name: Run Setup Script
+        run: |
+          chmod +x setup.sh
+          bash setup.sh
+
+      - name: Build APK (Release)
+        run: |
+          flutter build apk --release
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anees_almumin_release
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Create Release and Upload APK
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Anees Al Mumin v1.0.${{ github.run_number }}"
+          body: "ملف APK لتطبيق أنيس المؤمن جاهز للتحميل والتثبيت."
+          files: build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
