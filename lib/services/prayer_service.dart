@@ -50,16 +50,16 @@ typedef DayTimes = Map<PrayerKind, tz.TZDateTime>;
 class PrayerService {
   CalculationParameters _params(String method, String madhab) {
     final p = switch (method) {
-      'muslimWorldLeague' => CalculationMethod.muslimWorldLeague(),
-      'egyptian' => CalculationMethod.egyptian(),
-      'karachi' => CalculationMethod.karachi(),
-      'dubai' => CalculationMethod.dubai(),
-      'qatar' => CalculationMethod.qatar(),
-      'kuwait' => CalculationMethod.kuwait(),
-      'singapore' => CalculationMethod.singapore(),
-      'northAmerica' => CalculationMethod.northAmerica(),
-      'moonsighting' => CalculationMethod.moonsightingCommittee(),
-      _ => CalculationMethod.ummAlQura(),
+      'muslimWorldLeague' => CalculationMethodParameters.muslimWorldLeague(),
+      'egyptian' => CalculationMethodParameters.egyptian(),
+      'karachi' => CalculationMethodParameters.karachi(),
+      'dubai' => CalculationMethodParameters.dubai(),
+      'qatar' => CalculationMethodParameters.qatar(),
+      'kuwait' => CalculationMethodParameters.kuwait(),
+      'singapore' => CalculationMethodParameters.singapore(),
+      'northAmerica' => CalculationMethodParameters.northAmerica(),
+      'moonsighting' => CalculationMethodParameters.moonsightingCommittee(),
+      _ => CalculationMethodParameters.ummAlQura(),
     };
     p.madhab = madhab == 'hanafi' ? Madhab.hanafi : Madhab.shafi;
     return p;
