@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Build APK
+    name: Build Optimized APK
     runs-on: ubuntu-latest
 
     steps:
@@ -33,23 +33,39 @@ jobs:
           chmod +x setup.sh
           bash setup.sh
 
-      - name: Build APK (Release)
+      - name: Build Split APKs (Optimized Size)
         run: |
+          # بناء نسخ خفيفة منفصلة لكل معمارية لتقليل الحجم من 54 ميغا إلى ~15 ميغا
+          flutter build apk --release --split-per-abi
+          # أيضاً بناء النسخة الشاملة
           flutter build apk --release
 
-      - name: Upload APK Artifact
+          cd build/app/outputs/flutter-apk/
+          cp app-arm64-v8a-release.apk anees_almumin-arm64.apk
+          cp app-armeabi-v7a-release.apk anees_almumin-arm32.apk
+          cp app-release.apk anees_almumin-universal.apk
+          ls -lh anees_almumin*.apk
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: anees_almumin_release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: anees_almumin_apks
+          path: build/app/outputs/flutter-apk/anees_almumin*.apk
 
-      - name: Create Release and Upload APK
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "Anees Al Mumin v1.0.${{ github.run_number }}"
-          body: "ملف APK لتطبيق أنيس المؤمن جاهز للتحميل والتثبيت."
-          files: build/app/outputs/flutter-apk/app-release.apk
+          tag_name: v1.1.${{ github.run_number }}
+          name: "Anees Al Mumin v1.1.${{ github.run_number }} (Optimized)"
+          body: |
+            ### اختر النسخة المناسبة لجهازك:
+            * **`anees_almumin-arm64.apk`** (~15 ميغابايت): **النسخة الموصى بها لهاتفك (Tecno Camon 30) ولكافة الأجهزة الحديثة (64-bit)**. خفيفة وسريعة التثبيت.
+            * **`anees_almumin-arm32.apk`** (~14 ميغابايت): للأجهزة القديمة (32-bit).
+            * **`anees_almumin-universal.apk`** (~54 ميغابايت): النسخة الشاملة التي تضم جميع المعماريات معاً.
+          files: |
+            build/app/outputs/flutter-apk/anees_almumin-arm64.apk
+            build/app/outputs/flutter-apk/anees_almumin-arm32.apk
+            build/app/outputs/flutter-apk/anees_almumin-universal.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
