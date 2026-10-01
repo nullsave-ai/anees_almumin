@@ -1,0 +1,68 @@
+name: Build Flutter APK
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Optimized APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Run Setup Script
+        run: |
+          chmod +x setup.sh
+          bash setup.sh
+
+      - name: Build Split APKs (Optimized Size)
+        run: |
+          WORKSPACE_DIR=$PWD
+          flutter build apk --release --split-per-abi
+          flutter build apk --release
+
+          mkdir -p "$WORKSPACE_DIR/dist"
+          cd build/app/outputs/flutter-apk/
+          cp app-arm64-v8a-release.apk "$WORKSPACE_DIR/dist/anees_almumin-arm64.apk"
+          cp app-armeabi-v7a-release.apk "$WORKSPACE_DIR/dist/anees_almumin-arm32.apk"
+          cp app-release.apk "$WORKSPACE_DIR/dist/anees_almumin-universal.apk"
+          ls -lh "$WORKSPACE_DIR/dist/"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: anees_almumin_apks
+          path: dist/*.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+        with:
+          tag_name: v2.1.${{ github.run_number }}
+          name: "Anees Al Mumin v2.1.${{ github.run_number }} (Latest)"
+          body: |
+            ### النسخة الأحدث من تطبيق أنيس المؤمن:
+            * **`anees_almumin-arm64.apk`** (~15MB): **النسخة الموصى بها لهاتفك (Tecno Camon 30) وللهواتف الحديثة (64-bit)**.
+            * **`anees_almumin-arm32.apk`** (~14MB): للأجهزة القديمة (32-bit).
+            * **`anees_almumin-universal.apk`** (~54MB): النسخة الشاملة لجميع الأجهزة.
+          files: dist/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# يولّد ملفات أندرويد ويطبّق الأذونات والإشعارات ونسخ أصوات الأذان تلقائيًا. يمكن إعادة تشغيله بأمان.
+set -e
+flutter create . --platforms=android --project-name anees_almumin --org com.anees
+rm -f test/widget_test.dart
+cp android_overrides/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+if [ -f android/app/build.gradle.kts ]; then
+  G=android/app/build.gradle.kts
+  if ! grep -q coreLibraryDesugaring "$G"; then
+    sed -i 's/compileOptions {/compileOptions {\n        isCoreLibraryDesugaringEnabled = true/' "$G"
+    printf '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n' >> "$G"
+  fi
+  if ! grep -q syncAdhan "$G"; then
+    cat >> "$G" <<'KTS'
+
+// ينسخ أصوات الأذان من assets/adhan إلى res/raw تلقائيًا قبل كل بناء
+val syncAdhan by tasks.registering(Copy::class) {
+    from("${rootProject.projectDir}/../assets/adhan") { include("*.mp3", "*.ogg", "*.wav") }
+    into("${projectDir}/src/main/res/raw")
+    rename { it.lowercase().replace('-', '_').replace(' ', '_') }
+}
+tasks.configureEach { if (name == "preBuild") dependsOn(syncAdhan) }
+KTS
+  fi
+else
+  G=android/app/build.gradle
+  if ! grep -q coreLibraryDesugaring "$G"; then
+    sed -i 's/compileOptions {/compileOptions {\n        coreLibraryDesugaringEnabled true/' "$G"
+    printf '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"\n}\n' >> "$G"
+  fi
+  if ! grep -q syncAdhan "$G"; then
+    cat >> "$G" <<'GRV'
+
+task syncAdhan(type: Copy) {
+    from("${rootProject.projectDir}/../assets/adhan") { include "*.mp3", "*.ogg", "*.wav" }
+    into "${projectDir}/src/main/res/raw"
+    rename { it.toLowerCase().replace('-', '_').replace(' ', '_') }
+}
+tasks.whenTaskAdded { t -> if (t.name == 'preBuild') t.dependsOn syncAdhan }
+GRV
+  fi
+fi
+flutter pub get
+echo "تم. شغّل: flutter run"
