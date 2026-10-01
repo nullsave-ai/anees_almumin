@@ -1,4 +1,4 @@
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
 /// كل أيقونات التطبيق (Phosphor) في مكان واحد.
 class AppIcons {
