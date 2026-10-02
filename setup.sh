@@ -48,6 +48,9 @@ GRV
 fi
 
 # Force compileSdkVersion 36 and bypass AAR metadata check across all subprojects (resolves file_picker SDK 36 requirement)
+if [ -f android/gradle.properties ]; then
+  echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
+fi
 if [ -f android/app/build.gradle.kts ]; then
   sed -i 's/compileSdk = .*/compileSdk = 36/' android/app/build.gradle.kts || true
 fi
@@ -58,13 +61,6 @@ if [ -f android/build.gradle ]; then
   cat >> android/build.gradle <<'SUB_GRV'
 
 subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty('android')) {
-            project.android {
-                compileSdkVersion 36
-            }
-        }
-    }
     tasks.matching { it.name.contains("AarMetadata") }.configureEach {
         enabled = false
     }
@@ -75,13 +71,6 @@ if [ -f android/build.gradle.kts ]; then
   cat >> android/build.gradle.kts <<'SUB_KTS'
 
 subprojects {
-    afterEvaluate {
-        plugins.withId("com.android.library") {
-            configure<com.android.build.gradle.LibraryExtension> {
-                compileSdk = 36
-            }
-        }
-    }
     tasks.matching { it.name.contains("AarMetadata") }.configureEach {
         enabled = false
     }
