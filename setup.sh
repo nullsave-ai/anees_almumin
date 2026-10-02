@@ -47,9 +47,14 @@ GRV
   fi
 fi
 
-# Force compileSdkVersion 36 and bypass AAR metadata check across all subprojects (resolves file_picker SDK 36 requirement)
+# Force compileSdkVersion 36 across all subprojects (resolves SDK 36 requirement)
 if [ -f android/gradle.properties ]; then
   echo "android.suppressUnsupportedCompileSdk=36" >> android/gradle.properties
+fi
+if [ -f android/local.properties ]; then
+  echo "flutter.compileSdkVersion=36" >> android/local.properties
+else
+  echo "flutter.compileSdkVersion=36" > android/local.properties
 fi
 if [ -f android/app/build.gradle.kts ]; then
   sed -i 's/compileSdk = .*/compileSdk = 36/' android/app/build.gradle.kts || true
@@ -61,10 +66,12 @@ if [ -f android/build.gradle ]; then
   cat >> android/build.gradle <<'SUB_GRV'
 
 subprojects {
-    plugins.withId("com.android.library") {
-        if (project.hasProperty("android")) {
-            project.android {
-                compileSdkVersion 36
+    if (project.name != "app") {
+        afterEvaluate {
+            if (project.hasProperty("android")) {
+                project.android {
+                    compileSdkVersion 36
+                }
             }
         }
     }
@@ -75,17 +82,19 @@ if [ -f android/build.gradle.kts ]; then
   cat >> android/build.gradle.kts <<'SUB_KTS'
 
 subprojects {
-    plugins.withId("com.android.library") {
-        val ext = project.extensions.findByName("android")
-        if (ext != null) {
-            try {
-                val m = ext.javaClass.getMethod("setCompileSdkVersion", Int::class.javaPrimitiveType)
-                m.invoke(ext, 36)
-            } catch (_: Exception) {
+    if (project.name != "app") {
+        afterEvaluate {
+            val ext = project.extensions.findByName("android")
+            if (ext != null) {
                 try {
-                    val m2 = ext.javaClass.getMethod("setCompileSdk", java.lang.Integer::class.java)
-                    m2.invoke(ext, 36)
-                } catch (_: Exception) {}
+                    val m = ext.javaClass.getMethod("setCompileSdkVersion", Int::class.javaPrimitiveType)
+                    m.invoke(ext, 36)
+                } catch (_: Exception) {
+                    try {
+                        val m2 = ext.javaClass.getMethod("setCompileSdk", java.lang.Integer::class.java)
+                        m2.invoke(ext, 36)
+                    } catch (_: Exception) {}
+                }
             }
         }
     }
