@@ -61,8 +61,12 @@ if [ -f android/build.gradle ]; then
   cat >> android/build.gradle <<'SUB_GRV'
 
 subprojects {
-    tasks.matching { it.name.contains("AarMetadata") }.configureEach {
-        enabled = false
+    plugins.withId("com.android.library") {
+        if (project.hasProperty("android")) {
+            project.android {
+                compileSdkVersion 36
+            }
+        }
     }
 }
 SUB_GRV
@@ -71,8 +75,19 @@ if [ -f android/build.gradle.kts ]; then
   cat >> android/build.gradle.kts <<'SUB_KTS'
 
 subprojects {
-    tasks.matching { it.name.contains("AarMetadata") }.configureEach {
-        enabled = false
+    plugins.withId("com.android.library") {
+        val ext = project.extensions.findByName("android")
+        if (ext != null) {
+            try {
+                val m = ext.javaClass.getMethod("setCompileSdkVersion", Int::class.javaPrimitiveType)
+                m.invoke(ext, 36)
+            } catch (_: Exception) {
+                try {
+                    val m2 = ext.javaClass.getMethod("setCompileSdk", java.lang.Integer::class.java)
+                    m2.invoke(ext, 36)
+                } catch (_: Exception) {}
+            }
+        }
     }
 }
 SUB_KTS
