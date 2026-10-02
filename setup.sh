@@ -4,6 +4,12 @@ set -e
 flutter create . --platforms=android --project-name anees_almumin --org com.anees
 rm -f test/widget_test.dart
 cp android_overrides/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+# MainActivity: جسر أصلي صغير لإضافة صوت أذان مخصص إلى MediaStore (يلزم لصوت الإشعار)
+M=$(find android/app/src -name MainActivity.kt | head -1)
+if [ -n "$M" ]; then
+  PKG=$(grep -m1 '^package ' "$M")
+  { echo "$PKG"; echo; cat android_overrides/MainActivity.kt.body; } > "$M"
+fi
 if [ -f android/app/build.gradle.kts ]; then
   G=android/app/build.gradle.kts
   if ! grep -q coreLibraryDesugaring "$G"; then

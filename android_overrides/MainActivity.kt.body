@@ -1,0 +1,68 @@
+import android.content.ContentValues
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.webkit.MimeTypeMap
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+import java.io.File
+
+// جسر أصلي صغير: يضيف ملف الأذان المخصص إلى MediaStore (مجلد Notifications)
+// ليتمكن النظام من تشغيله كصوت إشعار. النسخ يتم في خيط خلفي ولا يحجب الواجهة.
+class MainActivity : FlutterActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "anees/adhan")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "import" -> {
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                            result.error("unsupported", null, null)
+                            return@setMethodCallHandler
+                        }
+                        val path = call.argument<String>("path")!!
+                        val name = call.argument<String>("name")!!
+                        Thread {
+                            try {
+                                val uri = importSound(path, name)
+                                runOnUiThread { result.success(uri) }
+                            } catch (e: Exception) {
+                                runOnUiThread { result.error("failed", e.message, null) }
+                            }
+                        }.start()
+                    }
+                    "delete" -> {
+                        try {
+                            contentResolver.delete(Uri.parse(call.argument<String>("uri")!!), null, null)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    private fun importSound(path: String, name: String): String {
+        val ext = name.substringAfterLast('.', "mp3").lowercase()
+        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "audio/mpeg"
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            put(MediaStore.Audio.Media.IS_NOTIFICATION, 1)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_NOTIFICATIONS + "/AneesAlMumin")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val uri = contentResolver.insert(collection, values) ?: throw IllegalStateException("insert failed")
+        contentResolver.openOutputStream(uri)!!.use { out ->
+            File(path).inputStream().use { it.copyTo(out) }
+        }
+        val done = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+        contentResolver.update(uri, done, null, null)
+        return uri.toString()
+    }
+}

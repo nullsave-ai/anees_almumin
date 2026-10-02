@@ -65,8 +65,8 @@ class PrayerService {
     return p;
   }
 
-  DayTimes compute(AppSettings s, int dayOffset) {
-    final loc = tz.getLocation(s.tzName);
+  DayTimes compute(AppSettings s, int dayOffset, {tz.Location? loc0}) {
+    final loc = loc0 ?? tz.getLocation(s.tzName);
     final now = tz.TZDateTime.now(loc);
     final date = DateTime(now.year, now.month, now.day + dayOffset);
     final pt = PrayerTimes(

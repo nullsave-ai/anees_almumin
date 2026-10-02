@@ -51,6 +51,8 @@ class AppIcons {
   static const forward = PhosphorIconsRegular.arrowLeft;
   static const zoomIn = PhosphorIconsRegular.magnifyingGlassPlus;
   static const zoomOut = PhosphorIconsRegular.magnifyingGlassMinus;
+  static const add = PhosphorIconsBold.plus;
+  static const trash = PhosphorIconsRegular.trash;
   static const reset = PhosphorIconsRegular.arrowCounterClockwise;
   static const rows = PhosphorIconsRegular.rows;
   static const cards = PhosphorIconsRegular.cards;

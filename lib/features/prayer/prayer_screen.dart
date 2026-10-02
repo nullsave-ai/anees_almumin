@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -154,9 +155,9 @@ class _SunCard extends StatelessWidget {
         SizedBox(
           height: 118,
           child: RepaintBoundary(
-            child: ValueListenableBuilder<Duration>(
-              valueListenable: c.remaining,
-              builder: (_, __, ___) {
+            child: LiveValue<Duration>(
+              listenable: c.remaining,
+              builder: (_, __) {
                 final now = DateTime.now().millisecondsSinceEpoch;
                 final a = sunrise.millisecondsSinceEpoch, b = sunset.millisecondsSinceEpoch;
                 final raw = b <= a ? 0.0 : ((now - a) / (b - a)).clamp(0.0, 1.0);
@@ -431,62 +432,98 @@ class VoiceSheet extends StatefulWidget {
 }
 
 class _VoiceSheetState extends State<VoiceSheet> {
+  late Future<List<AdhanVoice>> _future = Deps.adhan.voices();
+  StreamSubscription<void>? _sub;
   String? _playing;
-  late final _sub = Deps.adhan.onComplete.listen((_) {
-    if (mounted) setState(() => _playing = null);
-  });
-
-  @override
-  void initState() {
-    super.initState();
-    _sub;
-  }
+  String? _error;
+  bool _busy = false;
 
   @override
   void dispose() {
-    _sub.cancel();
-    Deps.adhan.stop();
+    _sub?.cancel();
+    Deps.adhan.releasePlayer();
     super.dispose();
   }
 
   Future<void> _toggle(AdhanVoice v) async {
     if (_playing == v.id) {
       await Deps.adhan.stop();
-      setState(() => _playing = null);
-    } else {
-      setState(() => _playing = v.id);
-      try {
-        await Deps.adhan.preview(v);
-      } catch (_) {
-        if (mounted) setState(() => _playing = null);
+      if (mounted) setState(() => _playing = null);
+      return;
+    }
+    setState(() => _playing = v.id);
+    _sub ??= Deps.adhan.onComplete.listen((_) {
+      if (mounted) setState(() => _playing = null);
+    });
+    try {
+      await Deps.adhan.preview(v);
+    } catch (_) {
+      if (mounted) setState(() => _playing = null);
+    }
+  }
+
+  Future<void> _add() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final v = await Deps.adhan.pickAndAdd();
+      if (v != null) await Deps.settings.put('voice', v.id);
+    } on AdhanException catch (e) {
+      _error = e.message;
+    } catch (_) {
+      _error = 'تعذر إضافة الصوت.';
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _future = Deps.adhan.voices();
+        });
       }
     }
+  }
+
+  Future<void> _remove(AdhanVoice v) async {
+    await Deps.adhan.removeCustom(v);
+    if (Deps.settings.voice == v.id) await Deps.settings.put('voice', '');
+    if (mounted) setState(() => _future = Deps.adhan.voices());
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.pal;
     return FutureBuilder<List<AdhanVoice>>(
-      future: Deps.adhan.voices(),
+      future: _future,
       builder: (context, snap) {
         final voices = snap.data ?? const <AdhanVoice>[];
         return ListenableBuilder(
           listenable: Deps.settings,
           builder: (context, _) {
             final cur = Deps.settings.voice;
-            Widget tile(String id, String name, AdhanVoice? v) => ListTile(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  leading: Icon(cur == id ? AppIcons.checkOn : AppIcons.checkOff, color: cur == id ? p.green : p.muted),
-                  title: Text(name, style: const TextStyle(fontSize: 16)),
-                  trailing: v == null
-                      ? null
-                      : GlassIconButton(
-                          size: 40,
-                          icon: _playing == id ? AppIcons.stop : AppIcons.play,
-                          tooltip: 'معاينة',
-                          onTap: () => _toggle(v)),
-                  onTap: () => Deps.settings.put('voice', id),
-                );
+            Widget tile(AdhanVoice? v) {
+              final id = v?.id ?? '';
+              return ListTile(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                leading: Icon(cur == id ? AppIcons.checkOn : AppIcons.checkOff, color: cur == id ? p.green : p.muted),
+                title: Text(v?.name ?? 'صوت الإشعار الافتراضي', style: const TextStyle(fontSize: 16)),
+                trailing: v == null
+                    ? null
+                    : Row(mainAxisSize: MainAxisSize.min, children: [
+                        GlassIconButton(
+                            size: 40,
+                            icon: _playing == id ? AppIcons.stop : AppIcons.play,
+                            tooltip: 'معاينة',
+                            onTap: () => _toggle(v)),
+                        if (v.custom) ...[
+                          const SizedBox(width: 8),
+                          GlassIconButton(size: 40, icon: AppIcons.trash, tooltip: 'حذف', onTap: () => _remove(v)),
+                        ],
+                      ]),
+                onTap: () => Deps.settings.put('voice', id),
+              );
+            }
+
             return ListView(
               shrinkWrap: true,
               padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
@@ -495,16 +532,23 @@ class _VoiceSheetState extends State<VoiceSheet> {
                   padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
                   child: Text('المؤذن وصوت الأذان', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
                 ),
-                tile('', 'صوت الإشعار الافتراضي', null),
-                for (final v in voices) tile(v.id, v.name, v),
-                if (snap.connectionState == ConnectionState.done && voices.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      'لا توجد أصوات أذان بعد. ضع ملفات mp3 داخل assets/adhan وأعد بناء التطبيق.',
-                      style: TextStyle(color: p.muted, height: 1.7),
-                    ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                  child: FilledButton.tonalIcon(
+                    onPressed: _busy ? null : _add,
+                    icon: _busy
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : Icon(AppIcons.add, size: 18),
+                    label: const Text('إضافة صوت من جهازك'),
                   ),
+                ),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  ),
+                tile(null),
+                for (final v in voices) tile(v),
               ],
             );
           },

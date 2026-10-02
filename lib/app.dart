@@ -19,9 +19,9 @@ class App extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Deps.settings,
-      builder: (context, _) => MaterialApp(
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: Deps.settings.themeN,
+      builder: (context, mode, _) => MaterialApp(
         title: 'أنيس المؤمن',
         debugShowCheckedModeBanner: false,
         locale: const Locale('ar'),
@@ -31,7 +31,7 @@ class App extends StatelessWidget {
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        themeMode: Deps.settings.themeMode,
+        themeMode: mode,
         theme: _light,
         darkTheme: _dark,
         home: const Shell(),
@@ -178,9 +178,9 @@ class GlassNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.pal;
-    return ListenableBuilder(
-      listenable: Deps.settings,
-      builder: (context, _) => GlassBox(
+    return ValueListenableBuilder<bool>(
+      valueListenable: Deps.settings.blurN,
+      builder: (context, _, __) => GlassBox(
         radius: 30,
         blur: 14,
         tint: p.dark ? const Color(0xE6141F12) : const Color(0xF2FFFFFF),

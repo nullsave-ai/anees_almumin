@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -9,6 +10,21 @@ import '../../services/notification_service.dart';
 import '../../services/prayer_service.dart';
 
 enum LoadState { loading, ready, needsLocation, error }
+
+/// عدّاد تنازلي يعرف إن كان أحد يراقبه، فيعمل المؤقت كل ثانية فقط عند الحاجة.
+class Countdown extends ValueNotifier<Duration> {
+  Countdown() : super(Duration.zero);
+  VoidCallback? onFirstListener;
+
+  bool get watched => hasListeners;
+
+  @override
+  void addListener(VoidCallback listener) {
+    final first = !hasListeners;
+    super.addListener(listener);
+    if (first) onFirstListener?.call();
+  }
+}
 
 class PrayerController extends ChangeNotifier with WidgetsBindingObserver {
   PrayerController(this._s, this._svc, this._notif, this._loc);
@@ -23,26 +39,40 @@ class PrayerController extends ChangeNotifier with WidgetsBindingObserver {
   PrayerKind next = PrayerKind.fajr;
   tz.TZDateTime? nextTime;
   tz.TZDateTime? prevTime;
-  final remaining = ValueNotifier<Duration>(Duration.zero);
+  final remaining = Countdown();
 
+  late tz.Location _zone;
   Timer? _timer;
   String _sig = '';
-  String _day = '';
-  String _scheduledDay = '';
+  int _day = 0;
   bool _busy = false;
+  bool _foreground = true;
+  VoidCallback? _settingsListener;
 
-  String _makeSig() =>
-      '${_s.lat}|${_s.lng}|${_s.tzName}|${_s.method}|${_s.madhab}|${_s.notify}|${_s.voice}';
-  String _dayKey(tz.TZDateTime t) => '${t.year}-${t.month}-${t.day}';
+  static const _locationTtl = Duration(hours: 6);
+
+  String _makeSig() => '${_s.lat}|${_s.lng}|${_s.tzName}|${_s.method}|${_s.madhab}|${_s.notify}|${_s.voice}';
+  static int _dayKey(tz.TZDateTime t) => t.year * 10000 + t.month * 100 + t.day;
 
   Future<void> init() async {
     WidgetsBinding.instance.addObserver(this);
-    _s.addListener(() {
+    remaining.onFirstListener = () => scheduleMicrotask(() {
+          if (status == LoadState.ready) {
+            _tick();
+            _schedule();
+          }
+        });
+    _settingsListener = () {
       if (!_busy && _makeSig() != _sig) refresh();
-    });
-    await refresh(relocate: true);
+    };
+    _s.addListener(_settingsListener!);
+    await refresh();
   }
 
+  bool get _locationStale =>
+      DateTime.now().millisecondsSinceEpoch - _s.locStamp > _locationTtl.inMilliseconds;
+
+  /// [relocate] يفرض طلب الموقع الآن؛ وإلا يُستخدم الموقع المحفوظ ما دام حديثًا (6 ساعات).
   Future<void> refresh({bool relocate = false, bool silent = false}) async {
     if (_busy) return;
     _busy = true;
@@ -52,12 +82,9 @@ class PrayerController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     }
     try {
-      if (_s.auto && (relocate || !_s.hasLocation)) {
+      if (_s.auto && (relocate || !_s.hasLocation || _locationStale)) {
         try {
-          final p = await _loc.current();
-          await _s.setLocation(p.$1, p.$2, tz.local.name, 'موقعك الحالي', auto: true);
-        } on LocationException {
-          if (!_s.hasLocation) rethrow;
+          await _locate();
         } catch (_) {
           if (!_s.hasLocation) rethrow;
         }
@@ -69,8 +96,8 @@ class PrayerController extends ChangeNotifier with WidgetsBindingObserver {
       }
       _load();
       status = LoadState.ready;
-      _startTimer();
-      _scheduleNotifications(force: true);
+      _schedule();
+      _scheduleNotifications();
     } on LocationException catch (e) {
       status = LoadState.needsLocation;
       error = e.message;
@@ -84,8 +111,21 @@ class PrayerController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// لا يُغيَّر الموقع المحفوظ إلا إذا انتقل المستخدم فعلًا (> ~5 كم) فلا تُعاد الجدولة بلا داعٍ.
+  Future<void> _locate() async {
+    final p = await _loc.current();
+    final lat = _s.lat, lng = _s.lng;
+    final moved = lat == null || lng == null || (p.$1 - lat).abs() > .05 || (p.$2 - lng).abs() > .05;
+    if (moved || !_s.auto || _s.place != 'موقعك الحالي') {
+      await _s.setLocation(p.$1, p.$2, tz.local.name, 'موقعك الحالي', auto: true);
+    } else {
+      await _s.prefs.setInt('loc_ts', DateTime.now().millisecondsSinceEpoch);
+    }
+  }
+
   void _load() {
-    final now = tz.TZDateTime.now(tz.getLocation(_s.tzName));
+    _zone = tz.getLocation(_s.tzName);
+    final now = tz.TZDateTime.now(_zone);
     today = _svc.today(_s);
     _day = _dayKey(now);
     _computeNext(now);
@@ -100,29 +140,42 @@ class PrayerController extends ChangeNotifier with WidgetsBindingObserver {
       if (t.isAfter(now)) {
         next = k;
         nextTime = t;
-        prevTime = prev ?? _svc.compute(_s, -1)[PrayerKind.isha];
+        prevTime = prev ?? _svc.compute(_s, -1, loc0: _zone)[PrayerKind.isha];
         return;
       }
       prev = t;
     }
     next = PrayerKind.fajr;
-    nextTime = _svc.compute(_s, 1)[PrayerKind.fajr];
+    nextTime = _svc.compute(_s, 1, loc0: _zone)[PrayerKind.fajr];
     prevTime = prev;
   }
 
-  bool isNextKind(PrayerKind k) =>
-      nextTime != null && today[k] != null && today[k]!.isAtSameMomentAs(nextTime!);
-  bool isPassed(PrayerKind k) =>
-      nextTime != null && today[k] != null && today[k]!.isBefore(nextTime!);
+  bool isNextKind(PrayerKind k) => nextTime != null && today[k] != null && today[k]!.isAtSameMomentAs(nextTime!);
+  bool isPassed(PrayerKind k) => nextTime != null && today[k] != null && today[k]!.isBefore(nextTime!);
 
-  void _startTimer() {
+  /// مؤقت واحد متكيّف: كل ثانية (مضبوط على حدّ الثانية) فقط إذا كان العدّاد ظاهرًا،
+  /// وإلا يستيقظ عند موعد الصلاة القادمة أو منتصف الليل فقط.
+  void _schedule() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    if (status != LoadState.ready || nextTime == null || !_foreground) return;
+    final now = tz.TZDateTime.now(_zone);
+    Duration wait;
+    if (remaining.watched) {
+      wait = Duration(milliseconds: 1005 - now.millisecond);
+    } else {
+      final toNext = nextTime!.difference(now);
+      final toMidnight = tz.TZDateTime(_zone, now.year, now.month, now.day + 1).difference(now);
+      wait = (toNext < toMidnight ? toNext : toMidnight) + const Duration(seconds: 1);
+    }
+    _timer = Timer(wait, () {
+      _tick();
+      _schedule();
+    });
   }
 
   void _tick() {
     if (status != LoadState.ready || nextTime == null) return;
-    final now = tz.TZDateTime.now(tz.getLocation(_s.tzName));
+    final now = tz.TZDateTime.now(_zone);
     if (_dayKey(now) != _day) {
       _load();
       _scheduleNotifications();
@@ -137,22 +190,32 @@ class PrayerController extends ChangeNotifier with WidgetsBindingObserver {
     remaining.value = d.isNegative ? Duration.zero : d;
   }
 
-  void _scheduleNotifications({bool force = false}) {
-    if (!force && _scheduledDay == _day) return;
-    _scheduledDay = _day;
-    final f = _s.notify ? _notif.schedule(_s, _svc) : _notif.cancelAll();
+  void _scheduleNotifications() {
+    final f = _s.notify ? _notif.ensureScheduled(_s, _svc) : _notif.disable(_s);
     f.catchError((_) {});
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
-    if (status != LoadState.ready) return;
-    if (s == AppLifecycleState.resumed) {
-      _tick();
-      _startTimer();
-      _scheduleNotifications();
-    } else if (s == AppLifecycleState.paused) {
+    if (s == AppLifecycleState.paused) {
+      _foreground = false;
       _timer?.cancel();
+    } else if (s == AppLifecycleState.resumed) {
+      _foreground = true;
+      if (status == LoadState.ready) {
+        _tick();
+        _schedule();
+        _scheduleNotifications();
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    if (_settingsListener != null) _s.removeListener(_settingsListener!);
+    remaining.dispose();
+    super.dispose();
   }
 }

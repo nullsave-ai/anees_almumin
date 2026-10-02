@@ -85,15 +85,28 @@ class Message extends StatelessWidget {
   }
 }
 
+/// يشترك في الـ Notifier فقط إذا كانت الصفحة ظاهرة (TickerMode)، فلا تُعاد بناء الصفحات المخفية.
+class LiveValue<T> extends StatelessWidget {
+  const LiveValue({super.key, required this.listenable, required this.builder});
+  final ValueListenable<T> listenable;
+  final Widget Function(BuildContext, T) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!TickerMode.of(context)) return builder(context, listenable.value);
+    return ValueListenableBuilder<T>(valueListenable: listenable, builder: (c, v, _) => builder(c, v));
+  }
+}
+
 class CountdownText extends StatelessWidget {
   const CountdownText({super.key, this.style});
   final TextStyle? style;
 
   @override
   Widget build(BuildContext context) => RepaintBoundary(
-        child: ValueListenableBuilder<Duration>(
-          valueListenable: Deps.prayer.remaining,
-          builder: (_, d, __) => Text(fmtCountdown(d), style: style),
+        child: LiveValue<Duration>(
+          listenable: Deps.prayer.remaining,
+          builder: (_, d) => Text(fmtCountdown(d), style: style),
         ),
       );
 }

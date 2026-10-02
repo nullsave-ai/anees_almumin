@@ -19,91 +19,96 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = Deps.prayer;
     final p = context.pal;
     final now = DateTime.now();
     return PageBody(
-      child: ListenableBuilder(
-        listenable: c,
-        builder: (context, _) => RefreshIndicator(
-          color: p.green,
-          edgeOffset: MediaQuery.of(context).padding.top + 8,
-          onRefresh: () => c.refresh(relocate: true, silent: true),
-          child: ListView(
-            controller: controller,
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: pagePad(context),
-            children: [
-              Reveal(
-                index: 0,
-                child: TabHeader(
-                  title: hijriLabel(now),
-                  subtitle: gregorianLabel(now),
-                  actions: [
-                    GlassIconButton(
-                      icon: p.dark ? AppIcons.sun : AppIcons.moon,
-                      tooltip: p.dark ? 'الوضع الفاتح' : 'الوضع الليلي',
-                      onTap: () => Deps.settings.put('theme', p.dark ? 'light' : 'dark'),
-                    ),
-                    GlassIconButton(
-                      icon: AppIcons.settings,
-                      tooltip: 'المظهر',
-                      onTap: () => showGlassSheet(context, builder: (_) => const _AppearanceSheet()),
-                    ),
-                  ],
+      child: RefreshIndicator(
+        color: p.green,
+        edgeOffset: MediaQuery.paddingOf(context).top + 8,
+        onRefresh: () => Deps.prayer.refresh(relocate: true, silent: true),
+        child: ListView(
+          controller: controller,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: pagePad(context),
+          children: [
+            Reveal(
+              index: 0,
+              child: TabHeader(
+                title: hijriLabel(now),
+                subtitle: gregorianLabel(now),
+                actions: [
+                  GlassIconButton(
+                    icon: p.dark ? AppIcons.sun : AppIcons.moon,
+                    tooltip: p.dark ? 'الوضع الفاتح' : 'الوضع الليلي',
+                    onTap: () => Deps.settings.put('theme', p.dark ? 'light' : 'dark'),
+                  ),
+                  GlassIconButton(
+                    icon: AppIcons.settings,
+                    tooltip: 'المظهر',
+                    onTap: () => showGlassSheet(context, builder: (_) => const _AppearanceSheet()),
+                  ),
+                ],
+              ),
+            ),
+            Reveal(index: 1, child: _Dynamic(onOpenTab: onOpenTab)),
+            const SizedBox(height: 22),
+            Reveal(
+              index: 3,
+              child: Row(children: [
+                Expanded(
+                  child: _Shortcut(
+                      icon: AppIcons.quran,
+                      label: 'القرآن الكريم',
+                      sub: '${ar(114)} سورة',
+                      onTap: () => onOpenTab(2)),
                 ),
-              ),
-              Reveal(index: 1, child: _top(context, c)),
-              if (c.status == LoadState.ready) ...[
-                const SizedBox(height: 16),
-                Reveal(index: 2, child: _Strip(c: c)),
-              ],
-              const SizedBox(height: 22),
-              Reveal(
-                index: 3,
-                child: Row(children: [
-                  Expanded(
-                    child: _Shortcut(
-                        icon: AppIcons.quran,
-                        label: 'القرآن الكريم',
-                        sub: '${ar(114)} سورة',
-                        onTap: () => onOpenTab(2)),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: _Shortcut(
-                        icon: AppIcons.azkar,
-                        label: 'الأذكار',
-                        sub: '${ar(adhkarCategories.length)} أقسام',
-                        onTap: () => onOpenTab(3)),
-                  ),
-                ]),
-              ),
-            ],
-          ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: _Shortcut(
+                      icon: AppIcons.azkar,
+                      label: 'الأذكار',
+                      sub: '${ar(adhkarCategories.length)} أقسام',
+                      onTap: () => onOpenTab(3)),
+                ),
+              ]),
+            ),
+          ],
         ),
       ),
     );
   }
+}
 
-  Widget _top(BuildContext context, PrayerController c) {
-    switch (c.status) {
-      case LoadState.loading:
-        return const Skeleton(height: 168, radius: 32);
-      case LoadState.ready:
-        return _Hero(c: c);
-      default:
-        return GlassCard(
-          child: Message(
-            icon: AppIcons.pin,
-            text: c.error ?? 'تعذر عرض أوقات الصلاة.',
-            actions: [
-              FilledButton.icon(
-                  onPressed: () => onOpenTab(1), icon: Icon(AppIcons.clock), label: const Text('أوقات الصلاة')),
-            ],
-          ),
-        );
-    }
+/// الجزء المتغيّر فقط (البطاقة الرئيسية + الشريط) يُعاد بناؤه عند تغير حالة الصلوات.
+class _Dynamic extends StatelessWidget {
+  const _Dynamic({required this.onOpenTab});
+  final void Function(int) onOpenTab;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Deps.prayer,
+      builder: (context, _) {
+        final c = Deps.prayer;
+        switch (c.status) {
+          case LoadState.loading:
+            return const Skeleton(height: 168, radius: 32);
+          case LoadState.ready:
+            return Column(children: [_Hero(c: c), const SizedBox(height: 16), _Strip(c: c)]);
+          default:
+            return GlassCard(
+              child: Message(
+                icon: AppIcons.pin,
+                text: c.error ?? 'تعذر عرض أوقات الصلاة.',
+                actions: [
+                  FilledButton.icon(
+                      onPressed: () => onOpenTab(1), icon: Icon(AppIcons.clock), label: const Text('أوقات الصلاة')),
+                ],
+              ),
+            );
+        }
+      },
+    );
   }
 }
 
@@ -205,9 +210,9 @@ class _Ring extends StatelessWidget {
       child: Stack(children: [
         Positioned.fill(
           child: RepaintBoundary(
-            child: ValueListenableBuilder<Duration>(
-              valueListenable: c.remaining,
-              builder: (_, d, __) {
+            child: LiveValue<Duration>(
+              listenable: c.remaining,
+              builder: (_, d) {
                 final total = c.nextTime!
                     .difference(c.prevTime ?? c.nextTime!.subtract(const Duration(hours: 4)))
                     .inSeconds;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/di.dart';
@@ -19,12 +21,34 @@ class QuranScreen extends StatefulWidget {
 class _QuranScreenState extends State<QuranScreen> {
   late Future<List<Surah>> _future = Deps.quran.surahs();
   final _qc = TextEditingController();
+  Timer? _debounce;
   String _query = '';
+  List<Surah>? _all;
+  List<Surah> _list = const [];
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _qc.dispose();
     super.dispose();
+  }
+
+  List<Surah> _filter() {
+    final all = _all;
+    if (all == null) return const [];
+    if (_query.isEmpty) return all;
+    return [for (final s in all) if (s.norm.contains(_query) || '${s.number}' == _query || ar(s.number) == _query) s];
+  }
+
+  void _onSearch(String v) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      setState(() {
+        _query = normalizeAr(v);
+        _list = _filter();
+      });
+    });
   }
 
   Future<void> _open(Surah s) async {
@@ -35,10 +59,18 @@ class _QuranScreenState extends State<QuranScreen> {
   @override
   Widget build(BuildContext context) {
     return PageBody(
-      child: ListenableBuilder(
-        listenable: Deps.settings,
-        builder: (context, _) =>
-            FutureBuilder<List<Surah>>(future: _future, builder: (c, snap) => _content(c, snap, Deps.settings.grid)),
+      child: ValueListenableBuilder<bool>(
+        valueListenable: Deps.settings.gridN,
+        builder: (context, grid, _) => FutureBuilder<List<Surah>>(
+          future: _future,
+          builder: (c, snap) {
+            if (snap.hasData && !identical(_all, snap.data)) {
+              _all = snap.data;
+              _list = _filter();
+            }
+            return _content(c, snap, grid);
+          },
+        ),
       ),
     );
   }
@@ -65,7 +97,7 @@ class _QuranScreenState extends State<QuranScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 14),
             child: TextField(
               controller: _qc,
-              onChanged: (v) => setState(() => _query = normalizeAr(v)),
+              onChanged: _onSearch,
               decoration: InputDecoration(
                 hintText: 'ابحث عن سورة',
                 hintStyle: TextStyle(color: p.muted),
@@ -115,10 +147,8 @@ class _QuranScreenState extends State<QuranScreen> {
       ]);
     }
 
-    final all = snap.data!;
-    final list = _query.isEmpty
-        ? all
-        : all.where((s) => normalizeAr(s.name).contains(_query) || '${s.number}' == _query || ar(s.number) == _query).toList();
+    final all = _all!;
+    final list = _list;
     final lastN = Deps.settings.prefs.getInt('last_surah');
     final last = (_query.isEmpty && lastN != null) ? all.where((e) => e.number == lastN).firstOrNull : null;
 
@@ -157,6 +187,7 @@ class _QuranScreenState extends State<QuranScreen> {
             delegate: SliverChildBuilderDelegate(
               (c, i) => _SurahTile(s: list[i], grid: true, onTap: () => _open(list[i])),
               childCount: list.length,
+              addAutomaticKeepAlives: false,
             ),
           ),
         )
@@ -170,6 +201,7 @@ class _QuranScreenState extends State<QuranScreen> {
                 child: _SurahTile(s: list[i], grid: false, onTap: () => _open(list[i])),
               ),
               childCount: list.length,
+              addAutomaticKeepAlives: false,
             ),
           ),
         ),
@@ -235,6 +267,7 @@ class ReaderScreen extends StatefulWidget {
 class _ReaderScreenState extends State<ReaderScreen> {
   late Future<List<Ayah>> _future = Deps.quran.ayahs(widget.surah.number);
   late final ScrollController _sc;
+  Timer? _saveTimer;
 
   @override
   void initState() {
@@ -248,13 +281,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _save() {
     if (!_sc.hasClients) return;
-    final p = Deps.settings.prefs;
-    p.setInt('last_surah', widget.surah.number);
-    p.setDouble('last_offset', _sc.offset);
+    Deps.settings.prefs.setDouble('last_offset', _sc.offset);
+  }
+
+  /// حفظ مؤجّل: كتابة واحدة بعد توقف التمرير بدل كتابة عند كل نهاية تمرير.
+  void _saveSoon() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 800), _save);
   }
 
   @override
   void dispose() {
+    _saveTimer?.cancel();
     _save();
     _sc.dispose();
     super.dispose();
@@ -299,21 +337,22 @@ class _ReaderScreenState extends State<ReaderScreen> {
             final ayahs = snap.data!;
             return NotificationListener<ScrollEndNotification>(
               onNotification: (_) {
-                _save();
+                _saveSoon();
                 return false;
               },
-              child: ListenableBuilder(
-                listenable: Deps.settings,
-                builder: (context, _) => ListView.builder(
+              child: ValueListenableBuilder<double>(
+                valueListenable: Deps.settings.fontN,
+                builder: (context, font, _) => ListView.builder(
                   controller: _sc,
                   padding: pad,
                   itemCount: ayahs.length,
+                  addAutomaticKeepAlives: false,
                   itemBuilder: (context, i) => Padding(
                     padding: const EdgeInsets.only(bottom: 6),
                     child: Text(
                       '${ayahs[i].text} \uFD3F${ar(ayahs[i].number)}\uFD3E',
                       textAlign: TextAlign.justify,
-                      style: TextStyle(fontSize: Deps.settings.quranFont, height: 2.1, color: p.ink),
+                      style: TextStyle(fontSize: font, height: 2.1, color: p.ink),
                     ),
                   ),
                 ),

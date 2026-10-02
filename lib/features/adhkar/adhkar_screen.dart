@@ -103,6 +103,42 @@ class _CatTile extends StatelessWidget {
   }
 }
 
+/// حالة العدّادات: Notifier لكل ذكر، فالضغط يعيد بناء بطاقة واحدة فقط لا الشاشة كلها.
+class _Progress {
+  _Progress(List<Dhikr> items)
+      : counts = [for (final d in items) d.count],
+        left = [for (final d in items) ValueNotifier<int>(d.count)];
+  final List<int> counts;
+  final List<ValueNotifier<int>> left;
+  final done = ValueNotifier<int>(0);
+
+  /// يرجع true إذا اكتمل الذكر بهذه الضغطة.
+  bool tap(int i) {
+    final n = left[i];
+    if (n.value == 0) return false;
+    n.value--;
+    if (n.value == 0) {
+      done.value++;
+      return true;
+    }
+    return false;
+  }
+
+  void reset() {
+    for (var i = 0; i < left.length; i++) {
+      left[i].value = counts[i];
+    }
+    done.value = 0;
+  }
+
+  void dispose() {
+    for (final n in left) {
+      n.dispose();
+    }
+    done.dispose();
+  }
+}
+
 class AdhkarDetail extends StatefulWidget {
   const AdhkarDetail({super.key, required this.category});
   final AdhkarCategory category;
@@ -112,16 +148,20 @@ class AdhkarDetail extends StatefulWidget {
 }
 
 class _AdhkarDetailState extends State<AdhkarDetail> {
-  late List<int> _left = [for (final d in widget.category.items) d.count];
+  late final _Progress _prog = _Progress(widget.category.items);
   late bool _pager = Deps.settings.prefs.getBool('apager') ?? true;
   int _page = 0;
+  int _gen = 0;
 
-  /// يرجع true إذا اكتمل الذكر بهذه الضغطة.
+  @override
+  void dispose() {
+    _prog.dispose();
+    super.dispose();
+  }
+
   bool _tap(int i) {
-    if (_left[i] == 0) return false;
-    final done = _left[i] == 1;
+    final done = _prog.tap(i);
     if (done) HapticFeedback.mediumImpact();
-    setState(() => _left[i]--);
     return done;
   }
 
@@ -142,70 +182,84 @@ class _AdhkarDetailState extends State<AdhkarDetail> {
         ),
         GlassIconButton(
           icon: AppIcons.reset,
-          tooltip: 'إعادة العدادات',
+          tooltip: 'إعادة العدّادات',
           size: 40,
-          onTap: () => setState(() {
-            _left = [for (final d in items) d.count];
+          onTap: () {
             _page = 0;
-          }),
+            _prog.reset();
+            if (_pager) setState(() => _gen++); // يعيد المؤشر للصفحة الأولى
+          },
         ),
       ],
       child: PageBody(
         child: _pager
             ? _Pager(
-                key: ValueKey('p${_left.where((e) => e != 0).length == items.length}'),
+                key: ValueKey(_gen),
                 items: items,
-                left: _left,
+                prog: _prog,
                 initialPage: _page,
                 color: widget.category.color,
                 onPage: (i) => _page = i,
                 onTap: _tap,
               )
-            : _listView(context),
+            : _ListMode(items: items, prog: _prog, onTap: _tap),
       ),
     );
   }
+}
 
-  Widget _listView(BuildContext context) {
+class _ListMode extends StatelessWidget {
+  const _ListMode({required this.items, required this.prog, required this.onTap});
+  final List<Dhikr> items;
+  final _Progress prog;
+  final bool Function(int) onTap;
+
+  @override
+  Widget build(BuildContext context) {
     final p = context.pal;
-    final items = widget.category.items;
     return ListView.builder(
       padding: pagePad(context, nav: false, extraTop: 66),
       itemCount: items.length,
+      addAutomaticKeepAlives: false,
       itemBuilder: (context, i) {
         final d = items[i];
-        final done = _left[i] == 0;
         return Padding(
           padding: const EdgeInsets.only(bottom: 14),
           child: GlassCard(
-            onTap: () => _tap(i),
+            onTap: () => onTap(i),
             radius: 28,
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-            child: Column(children: [
-              if (d.title != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(d.title!, style: TextStyle(fontSize: 13, color: p.green, fontWeight: FontWeight.w700)),
-                ),
-              Text(d.text,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 21, height: 2, color: done ? p.muted : p.ink)),
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: 1 - _left[i] / d.count,
-                  minHeight: 5,
-                  backgroundColor: p.green.withAlpha(34),
-                  valueColor: AlwaysStoppedAnimation(p.green),
-                ),
-              ),
-              const SizedBox(height: 10),
-              done
-                  ? Icon(AppIcons.checkOn, color: p.green, size: 26)
-                  : Text('${ar(_left[i])} / ${ar(d.count)}',
-                      style: TextStyle(color: p.green, fontWeight: FontWeight.w800, fontSize: 17)),
-            ]),
+            child: ValueListenableBuilder<int>(
+              valueListenable: prog.left[i],
+              builder: (context, left, _) {
+                final done = left == 0;
+                return Column(children: [
+                  if (d.title != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(d.title!, style: TextStyle(fontSize: 13, color: p.green, fontWeight: FontWeight.w700)),
+                    ),
+                  Text(d.text,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 21, height: 2, color: done ? p.muted : p.ink)),
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: 1 - left / d.count,
+                      minHeight: 5,
+                      backgroundColor: p.green.withAlpha(34),
+                      valueColor: AlwaysStoppedAnimation(p.green),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  done
+                      ? Icon(AppIcons.checkOn, color: p.green, size: 26)
+                      : Text('${ar(left)} / ${ar(d.count)}',
+                          style: TextStyle(color: p.green, fontWeight: FontWeight.w800, fontSize: 17)),
+                ]);
+              },
+            ),
           ),
         );
       },
@@ -218,14 +272,14 @@ class _Pager extends StatefulWidget {
   const _Pager({
     super.key,
     required this.items,
-    required this.left,
+    required this.prog,
     required this.initialPage,
     required this.color,
     required this.onPage,
     required this.onTap,
   });
   final List<Dhikr> items;
-  final List<int> left;
+  final _Progress prog;
   final int initialPage;
   final Color color;
   final ValueChanged<int> onPage;
@@ -237,11 +291,12 @@ class _Pager extends StatefulWidget {
 
 class _PagerState extends State<_Pager> {
   late final PageController _pc = PageController(viewportFraction: .92, initialPage: widget.initialPage);
-  late int _page = widget.initialPage;
+  late final ValueNotifier<int> _page = ValueNotifier(widget.initialPage);
 
   @override
   void dispose() {
     _pc.dispose();
+    _page.dispose();
     super.dispose();
   }
 
@@ -249,7 +304,7 @@ class _PagerState extends State<_Pager> {
     final done = widget.onTap(i);
     if (done && i < widget.items.length - 1) {
       Future.delayed(const Duration(milliseconds: 420), () {
-        if (mounted && _page == i && _pc.hasClients) {
+        if (mounted && _page.value == i && _pc.hasClients) {
           _pc.animateToPage(i + 1, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic);
         }
       });
@@ -259,19 +314,25 @@ class _PagerState extends State<_Pager> {
   @override
   Widget build(BuildContext context) {
     final p = context.pal;
-    final m = MediaQuery.of(context).padding;
+    final m = MediaQuery.paddingOf(context);
     final n = widget.items.length;
-    final done = widget.left.where((e) => e == 0).length;
     return Column(children: [
       SizedBox(height: m.top + 78),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 30),
         child: Row(children: [
-          Text('${ar(_page + 1)} / ${ar(n)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          ValueListenableBuilder<int>(
+            valueListenable: _page,
+            builder: (_, pg, __) =>
+                Text('${ar(pg + 1)} / ${ar(n)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          ),
           const Spacer(),
           Icon(AppIcons.checkRing, size: 18, color: p.green),
           const SizedBox(width: 4),
-          Text('${ar(done)} مكتمل', style: TextStyle(fontSize: 13, color: p.muted)),
+          ValueListenableBuilder<int>(
+            valueListenable: widget.prog.done,
+            builder: (_, d, __) => Text('${ar(d)} مكتمل', style: TextStyle(fontSize: 13, color: p.muted)),
+          ),
         ]),
       ),
       const SizedBox(height: 8),
@@ -279,11 +340,14 @@ class _PagerState extends State<_Pager> {
         padding: const EdgeInsets.symmetric(horizontal: 30),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: n == 0 ? 0 : done / n,
-            minHeight: 5,
-            backgroundColor: widget.color.withAlpha(40),
-            valueColor: AlwaysStoppedAnimation(widget.color),
+          child: ValueListenableBuilder<int>(
+            valueListenable: widget.prog.done,
+            builder: (_, d, __) => LinearProgressIndicator(
+              value: n == 0 ? 0 : d / n,
+              minHeight: 5,
+              backgroundColor: widget.color.withAlpha(40),
+              valueColor: AlwaysStoppedAnimation(widget.color),
+            ),
           ),
         ),
       ),
@@ -293,7 +357,7 @@ class _PagerState extends State<_Pager> {
           controller: _pc,
           itemCount: n,
           onPageChanged: (i) {
-            setState(() => _page = i);
+            _page.value = i;
             widget.onPage(i);
           },
           itemBuilder: (context, i) => Padding(
@@ -301,7 +365,7 @@ class _PagerState extends State<_Pager> {
             child: _PagerCard(
               dhikr: widget.items[i],
               index: i,
-              left: widget.left[i],
+              left: widget.prog.left[i],
               color: widget.color,
               onTap: () => _handleTap(i),
             ),
@@ -326,18 +390,19 @@ class _Chip extends StatelessWidget {
       );
 }
 
+/// النص الثابت لا يُعاد تخطيطه عند الضغط؛ يُعاد بناء العدّاد فقط.
 class _PagerCard extends StatelessWidget {
   const _PagerCard(
       {required this.dhikr, required this.index, required this.left, required this.color, required this.onTap});
   final Dhikr dhikr;
-  final int index, left;
+  final int index;
+  final ValueNotifier<int> left;
   final Color color;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final p = context.pal;
-    final done = left == 0;
     return GlassCard(
       radius: 36,
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
@@ -367,9 +432,14 @@ class _PagerCard extends StatelessWidget {
             ),
           ),
         ),
-        _Counter(left: left, total: dhikr.count, color: color),
-        const SizedBox(height: 8),
-        Text(done ? 'أحسنت، تم الذكر' : 'اضغط للعدّ', style: TextStyle(fontSize: 12, color: p.muted)),
+        ValueListenableBuilder<int>(
+          valueListenable: left,
+          builder: (context, v, _) => Column(children: [
+            _Counter(left: v, total: dhikr.count, color: color),
+            const SizedBox(height: 8),
+            Text(v == 0 ? 'أحسنت، تم الذكر' : 'اضغط للعدّ', style: TextStyle(fontSize: 12, color: p.muted)),
+          ]),
+        ),
       ]),
     );
   }
@@ -383,7 +453,6 @@ class _Counter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.pal;
-    final done = left == 0;
     return SizedBox(
       width: 108,
       height: 108,
@@ -391,7 +460,7 @@ class _Counter extends StatelessWidget {
         child: CustomPaint(
           painter: _CountRing(1 - left / total, color, p.gold, color.withAlpha(36)),
           child: Center(
-            child: done
+            child: left == 0
                 ? Icon(AppIcons.check, size: 42, color: p.gold)
                 : Text(ar(left), style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: color)),
           ),
