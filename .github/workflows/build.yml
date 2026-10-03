@@ -59,10 +59,12 @@ jobs:
           tag_name: v2.1.${{ github.run_number }}
           name: "Anees Al Mumin v2.1.${{ github.run_number }} (Latest)"
           body: |
-            ### النسخة الأحدث من تطبيق أنيس المؤمن:
-            * **`anees_almumin-arm64.apk`** (~15MB): **النسخة الموصى بها لهاتفك (Tecno Camon 30) وللهواتف الحديثة (64-bit)**.
-            * **`anees_almumin-arm32.apk`** (~14MB): للأجهزة القديمة (32-bit).
-            * **`anees_almumin-universal.apk`** (~54MB): النسخة الشاملة لجميع الأجهزة.
+            ### النسخة الأحدث من تطبيق أنيس المؤمن (مع الخلفيات الحية والويدجت):
+            * **ميزة الخلفيات الحية (`Live Wallpaper`)**: خلفيات تفاعلية تتغير مع مواقيت الصلاة وأوقات اليوم.
+            * **ويدجت الشاشة الرئيسية (`Prayer Widget`)**: ويدجت يعرض الصلاة القادمة مع عد تنازلي خفيف ودقيق.
+            * **`anees_almumin-arm64.apk`**: النسخة الموصى بها لهاتفك (Tecno Camon 30) وللهواتف الحديثة (64-bit).
+            * **`anees_almumin-arm32.apk`**: للأجهزة القديمة (32-bit).
+            * **`anees_almumin-universal.apk`**: النسخة الشاملة لجميع الأجهزة.
           files: dist/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

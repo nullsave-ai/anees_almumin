@@ -1,4 +1,9 @@
+import android.app.WallpaperManager
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.ContentValues
+import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -9,41 +14,95 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
-// جسر أصلي صغير: يضيف ملف الأذان المخصص إلى MediaStore (مجلد Notifications)
-// ليتمكن النظام من تشغيله كصوت إشعار. النسخ يتم في خيط خلفي ولا يحجب الواجهة.
+// جسور أصلية صغيرة (تعمل في خيوط خلفية ولا تحجب الواجهة):
+// 1) anees/adhan: إضافة صوت أذان مخصص إلى MediaStore
+// 2) anees/wallpaper: تعيين خلفية ثابتة، فتح الخلفية الحية، تثبيت الويدجت، تحديثه
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "anees/adhan")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "import" -> {
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                            result.error("unsupported", null, null)
-                            return@setMethodCallHandler
-                        }
-                        val path = call.argument<String>("path")!!
-                        val name = call.argument<String>("name")!!
-                        Thread {
-                            try {
-                                val uri = importSound(path, name)
-                                runOnUiThread { result.success(uri) }
-                            } catch (e: Exception) {
-                                runOnUiThread { result.error("failed", e.message, null) }
-                            }
-                        }.start()
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+
+        MethodChannel(messenger, "anees/adhan").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "import" -> {
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                        result.error("unsupported", null, null)
+                        return@setMethodCallHandler
                     }
-                    "delete" -> {
+                    val path = call.argument<String>("path")!!
+                    val name = call.argument<String>("name")!!
+                    Thread {
                         try {
-                            contentResolver.delete(Uri.parse(call.argument<String>("uri")!!), null, null)
-                            result.success(true)
+                            val uri = importSound(path, name)
+                            runOnUiThread { result.success(uri) }
                         } catch (e: Exception) {
-                            result.success(false)
+                            runOnUiThread { result.error("failed", e.message, null) }
+                        }
+                    }.start()
+                }
+                "delete" -> {
+                    try {
+                        contentResolver.delete(Uri.parse(call.argument<String>("uri")!!), null, null)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(messenger, "anees/wallpaper").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setStatic" -> {
+                    val path = call.argument<String>("path")!!
+                    val which = call.argument<Int>("which") ?: 3
+                    Thread {
+                        try {
+                            val bmp = BitmapFactory.decodeFile(path)
+                            val wm = WallpaperManager.getInstance(this)
+                            if (Build.VERSION.SDK_INT >= 24) wm.setBitmap(bmp, null, true, which) else wm.setBitmap(bmp)
+                            bmp.recycle()
+                            runOnUiThread { result.success(true) }
+                        } catch (e: Exception) {
+                            runOnUiThread { result.error("failed", e.message, null) }
+                        }
+                    }.start()
+                }
+                "setLive" -> {
+                    try {
+                        val i = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
+                            .putExtra(
+                                WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                                ComponentName(this, AneesLiveWallpaperService::class.java)
+                            )
+                        startActivity(i)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        try {
+                            startActivity(Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER))
+                            result.success(true)
+                        } catch (e2: Exception) {
+                            result.error("failed", e2.message, null)
                         }
                     }
-                    else -> result.notImplemented()
                 }
+                "pinWidget" -> {
+                    val awm = AppWidgetManager.getInstance(this)
+                    if (Build.VERSION.SDK_INT >= 26 && awm.isRequestPinAppWidgetSupported) {
+                        awm.requestPinAppWidget(ComponentName(this, AneesPrayerWidget::class.java), null, null)
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "refreshWidget" -> {
+                    AneesPrayerWidget.updateAll(this)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
             }
+        }
     }
 
     private fun importSound(path: String, name: String): String {

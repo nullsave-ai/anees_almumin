@@ -10,6 +10,7 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../data/adhkar_data.dart';
 import '../../services/prayer_service.dart';
+import '../wallpapers/wallpapers_screen.dart';
 import '../prayer/prayer_controller.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -71,6 +72,27 @@ class HomeScreen extends StatelessWidget {
                       onTap: () => onOpenTab(3)),
                 ),
               ]),
+            ),
+            const SizedBox(height: 14),
+            Reveal(
+              index: 4,
+              child: GlassCard(
+                radius: 28,
+                onTap: () => Navigator.push(context, smoothRoute(const WallpapersScreen())),
+                child: Row(children: [
+                  IconBadge(icon: AppIcons.wallpaper, size: 50),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('الخلفيات والويدجت', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 3),
+                      Text('خلفيات ثابتة ومتحركة وويدجت الصلاة القادمة',
+                          style: TextStyle(fontSize: 12, color: p.muted)),
+                    ]),
+                  ),
+                  Icon(AppIcons.next, color: p.muted),
+                ]),
+              ),
             ),
           ],
         ),

@@ -40,6 +40,7 @@ class PrayerController extends ChangeNotifier with WidgetsBindingObserver {
   tz.TZDateTime? nextTime;
   tz.TZDateTime? prevTime;
   final remaining = Countdown();
+  VoidCallback? onTimesChanged;
 
   late tz.Location _zone;
   Timer? _timer;
@@ -130,6 +131,7 @@ class PrayerController extends ChangeNotifier with WidgetsBindingObserver {
     _day = _dayKey(now);
     _computeNext(now);
     remaining.value = nextTime!.difference(now);
+    onTimesChanged?.call();
   }
 
   void _computeNext(tz.TZDateTime now) {

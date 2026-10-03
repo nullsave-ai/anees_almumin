@@ -16,6 +16,7 @@ import 'services/adhan_service.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
 import 'services/prayer_service.dart';
+import 'services/wallpaper_service.dart';
 
 /// الإقلاع: ننتظر SharedPreferences فقط ثم نعرض الواجهة فورًا (هياكل تحميل).
 /// كل ما عداه (المناطق الزمنية، الإشعارات، الموقع، الصوتيات) يبدأ بعد أول إطار.
@@ -29,8 +30,12 @@ Future<void> main() async {
   Deps.location = LocationService();
   Deps.adhan = AdhanService(prefs);
   Deps.notifications = NotificationService(Deps.adhan);
+  Deps.wallpaper = WallpaperService();
   Deps.quran = QuranRepository();
   Deps.prayer = PrayerController(Deps.settings, Deps.prayers, Deps.notifications, Deps.location);
+
+  // يُحدَّث الويدجت كلما أُعيد حساب أوقات الصلاة
+  Deps.prayer.onTimesChanged = () => Deps.wallpaper.refreshWidget();
 
   runApp(const App());
   WidgetsBinding.instance.addPostFrameCallback((_) => _boot(prefs));

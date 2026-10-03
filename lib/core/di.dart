@@ -4,6 +4,7 @@ import '../services/adhan_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
 import '../services/prayer_service.dart';
+import '../services/wallpaper_service.dart';
 import 'settings.dart';
 
 /// محدد خدمات بسيط: تُهيَّأ مرة واحدة في main.
@@ -15,4 +16,5 @@ class Deps {
   static late PrayerController prayer;
   static late QuranRepository quran;
   static late AdhanService adhan;
+  static late WallpaperService wallpaper;
 }

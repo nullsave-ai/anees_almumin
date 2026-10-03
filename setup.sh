@@ -9,7 +9,18 @@ M=$(find android/app/src -name MainActivity.kt | head -1)
 if [ -n "$M" ]; then
   PKG=$(grep -m1 '^package ' "$M")
   { echo "$PKG"; echo; cat android_overrides/MainActivity.kt.body; } > "$M"
+  D=$(dirname "$M")
+  for f in android_overrides/kotlin/*.kt.body; do
+    b=$(basename "$f" .body)
+    { echo "$PKG"; echo; cat "$f"; } > "$D/$b"
+  done
 fi
+# موارد الخلفية الحية والويدجت
+RES=android/app/src/main/res
+mkdir -p "$RES/xml" "$RES/layout" "$RES/drawable"
+cp android_overrides/res/xml/*.xml "$RES/xml/"
+cp android_overrides/res/layout/*.xml "$RES/layout/"
+cp android_overrides/res/drawable/*.xml "$RES/drawable/"
 if [ -f android/app/build.gradle.kts ]; then
   G=android/app/build.gradle.kts
   if ! grep -q coreLibraryDesugaring "$G"; then
